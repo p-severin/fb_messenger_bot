@@ -7,6 +7,8 @@ from pprint import pprint
 from .models import FacebookUser
 from .models import Message
 from datetime import datetime
+from .EmailSender import EmailSender
+from .models import Ticket
 
 # Create your views here.
 from CallCenter.services import post_facebook_message
@@ -42,29 +44,51 @@ class CallCenter(generic.View):
                     senderId = message['sender']['id']
                     currentUser = self.getOrCreateUserIfDoesNotExist(senderId)
                     lastActionForCurrentUser = self.getLastActionForCurrentUser(currentUser)
+                    actionTaken = None
 
-                    if lastActionForCurrentUser is None:
+                    if lastActionForCurrentUser is None or lastActionForCurrentUser == 'welcome':
                         actionTaken = 'askForNumber'
                         informationMessage = 'Welcome! Please write down your number.'
+
                     elif lastActionForCurrentUser == 'askForNumber':
                         userNumber = currentUser.phoneNumber
                         if userNumber == message['message']['text']:
-                            actionTaken = 'userVerified'
-                            informationMessage = 'Your number is correct. Proceeding with your request.'
+                            actionTaken = 'describeProblem'
+                            informationMessage = 'Please describe your problem, so we can open a ticket for you.'
                         else:
                             actionTaken = 'numberIncorrect'
                             informationMessage = 'Incorrect number. Please try once again'
-                    elif lastActionForCurrentUser == 'userVerified':
 
                     elif lastActionForCurrentUser == 'numberIncorrect':
+                        userNumber = currentUser.phoneNumber
+                        if userNumber == message['message']['text']:
+                            actionTaken = 'describeProblem'
+                            informationMessage = 'Please describe your problem, so we can open a ticket for you.'
+                        else:
+                            actionTaken = 'numberIncorrect'
+                            informationMessage = 'Incorrect number. Please try once again'
 
-                        elif lastActionForCurrentUser == ''
+                    elif lastActionForCurrentUser == 'describeProblem':
+                        problemDescription = message['message']['text']
+                        if problemDescription is None:
+                            actionTaken = 'describeProblem'
+                            informationMessage = 'You did not describe your problem. Please try once again.'
+                        else:
+                            actionTaken = 'welcome'
+                            informationMessage = 'Your problem has been registered. Please wait for our consultant to ' \
+                                                 'call you. '
+                            emailSender = EmailSender()
+                            emailSender.connect()
+                            emailSender.send_mail('patryk.seweryn@gmail.com', message['message']['text'])
+                            newTicket = Ticket(date=datetime.now(), ticketMessage=message['message']['text'], user=currentUser)
+                            newTicket.save()
+
                     self.createMessage(currentUser, message, actionTaken)
                     post_facebook_message(senderId, informationMessage)
 
     def getLastActionForCurrentUser(self, currentUser):
         try:
-            allMessagesOfCurrentUser = Message.objects.filter(user_id=currentUser.id).order_by('date')
+            allMessagesOfCurrentUser = Message.objects.filter(user_id=currentUser.id).order_by('-date')
             actionOfLastMessageForCurrentUser = allMessagesOfCurrentUser[0].actionTaken
             print(actionOfLastMessageForCurrentUser)
         except Exception as e:
@@ -85,5 +109,3 @@ class CallCenter(generic.View):
             user = FacebookUser(facebookId=senderId)
             user.save()
         return user
-
-
